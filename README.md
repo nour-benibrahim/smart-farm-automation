@@ -1,73 +1,96 @@
 # 🌱 Smart Farm Automation System
 
-A full-stack IoT greenhouse monitoring and control system built during an internship at **FEED IN GREEN**.  
-It combines an **ESP32-S3 embedded controller** with a **NestJS cloud backend**, communicating over **MQTT via WebSocket Secure (WSS)**.
+**A smart greenhouse controller that keeps working when the network doesn't.**
+
+Built during an internship at **FEED IN GREEN**, this IoT system combines an **ESP32-S3** controller (sensors + actuators) with a **NestJS** cloud backend, connected through **MQTT over secure WebSocket (WSS)**.
+
+![ESP32-S3](https://img.shields.io/badge/ESP32--S3-FreeRTOS%20dual--core-E7352C)
+![MQTT](https://img.shields.io/badge/MQTT-over%20WSS-660066)
+![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-%E2%89%A5%2014-336791)
 
 ---
 
-## Architecture Overview
+## Why this project
 
-```
-                ┌──────────────┐        WSS/MQTT        ┌────────────────────┐
-                │  ESP32-S3    │ ══════════════════════> │  EMQX Cloud Broker │
-                │  Firmware    │ <══════════════════════ │  (wss://:8084)     │
-                └──────┬───────┘                         └─────────┬──────────┘
-                       │                                           │
-          ┌────────────┼────────────┐                   ┌─────────▼──────────┐
-          │            │            │                   │   NestJS Backend   │
-    XY-MD02        YL-69       Relay board              │   (Node.js v22)    │
-  (RS485/Modbus)  (soil ADC)  (ventilator,              │   PostgreSQL DB    │
-  temp + humidity             humidifier,               │   Socket.IO        │
-                              water pump,               └────────────────────┘
-                              lights, roof)
+Managing a greenhouse by hand means frequent on-site checks, late reactions to temperature or humidity changes, and water and energy used without measurements.
+
+This system automates a simple loop, **measure → decide → act**, and makes it available remotely. It aims to:
+
+- ⚡ **Optimize energy use** by running ventilation and humidification only when needed
+- 💧💰 **Reduce water and operating costs** by irrigating from real soil data
+- 🌾 **Support better production** by keeping temperature, humidity and soil moisture in target ranges
+
+Because Wi-Fi and cloud links do fail on farms, one rule drives the design:
+
+> **If the cloud goes away, the greenhouse must still be controlled.**
+
+---
+
+## Highlights
+
+- 🧠 **Dual-core FreeRTOS firmware:** networking on Core 0, sensing and control on Core 1, so slow reconnects never block the relays
+- 🛟 **Local backup mode:** after 30 s without MQTT, the ESP32 controls the greenhouse by itself
+- 🔌 **Reliable sensing:** RS485/Modbus and ADC readings are validated and retried; invalid data is never used
+- 🔐 **Traceable commands:** each command has an `actionId`, duplicates are ignored, and every action is acknowledged
+- ☁️ **Full cloud path:** EMQX broker → NestJS → PostgreSQL, with live updates via Socket.IO
+- 🛡️ **Secured backend:** JWT in HttpOnly cookies, Helmet, CSRF protection, rate limiting
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Field["Greenhouse"]
+        S["Sensors<br/>XY-MD02 (RS485/Modbus)<br/>YL-69 (soil, ADC)"]
+        ESP["ESP32-S3<br/>FreeRTOS dual-core"]
+        A["Actuators via relays<br/>Ventilator · Humidifier · Pump<br/>Lights · Roof"]
+        S --> ESP --> A
+    end
+
+    ESP <-- "MQTT over WSS" --> B(("EMQX Cloud<br/>broker"))
+    B <--> API["NestJS backend<br/>PostgreSQL · Socket.IO"]
 ```
 
-| Component | Technology |
-|-----------|-----------|
-| Firmware | Arduino / ESP32-S3, FreeRTOS (dual-core), PubSubClient, WebSockets |
-| Backend | NestJS v11, TypeORM, PostgreSQL, JWT auth, Socket.IO |
+Telemetry goes up (sensors → broker → backend), commands come down (backend → broker → relays), and a local path (sensors → ESP32 → relays) works without the cloud.
+
+---
+
+## Local backup mode
+
+When MQTT is unavailable for more than 30 s, the ESP32 applies these rules on its own. When the connection returns, all relays reset to OFF and remote control resumes.
+
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Firmware | ESP32-S3, Arduino core, FreeRTOS, PubSubClient, WebSockets |
+| Sensors | XY-MD02 (temperature, humidity), YL-69 (soil moisture) |
+| Actuators | 8-relay board: ventilator, humidifier, water pump, lights, roof |
+| Backend | NestJS v11, TypeORM, PostgreSQL, JWT, Socket.IO |
 | Broker | EMQX Cloud (MQTT over WSS, port 8084) |
-| Sensors | XY-MD02 (RS485/Modbus), YL-69 (analog ADC) |
-| Actuators | 8-relay board (ventilator, humidifier, water pump, lights, roof, spares) |
 
 ---
 
-## Repository Structure
+## Repository structure
 
 ```
-smart-farm-publication/
-├── .gitignore                      ← root gitignore (covers secrets, archives, PDF)
-├── README.md                       ← this file
-├── docs/
-│   ├── architecture.md             ← detailed system design
-│   ├── MQTT_topics.md              ← topic reference
-│   ├── firmware_setup.md           ← flashing instructions
-│   ├── backend_setup.md            ← backend setup guide
-│   └── schema/
-│       └── sfdb_schema_only.sql    ← DDL-only schema (no personal data)
-├── firmware/
-│   ├── README.md                   ← library list, pin map, flash steps
-│   ├── smart_farm_wss_db_aligned.ino ← ESP32-S3 firmware
-│   └── secrets.h.example           ← credential template (copy to secrets.h)
-└── backend/
-    └── smart-farm-backend/         ← NestJS application
-        ├── .env.example            ← environment variable template
-        ├── README.md               ← backend-specific setup
-        └── src/                    ← NestJS source
+├── docs/        architecture, MQTT topics, setup guides, DB schema
+├── firmware/    ESP32-S3 firmware + secrets.h.example
+└── backend/     NestJS application (smart-farm-backend)
 ```
 
 ---
 
-## Quick Start
+## Quick start
 
-### Prerequisites
+**Prerequisites:** Node.js ≥ 22, PostgreSQL ≥ 14, an EMQX Cloud account (free tier is enough), Arduino IDE ≥ 2.x with ESP32-S3 support.
 
-- **Node.js** ≥ 22 (see `.nvmrc`)
-- **PostgreSQL** ≥ 14
-- **EMQX Cloud** account (free tier is sufficient)
-- **Arduino IDE** ≥ 2.x with ESP32-S3 board support
-
-### Backend
+**Backend**
 
 ```bash
 cd backend/smart-farm-backend
@@ -76,65 +99,39 @@ npm install
 npm run start:dev
 ```
 
-See [`backend/smart-farm-backend/README.md`](backend/smart-farm-backend/README.md) for the full setup.
+**Firmware**
 
-### Firmware
+1. Copy `firmware/secrets.h.example` to `firmware/secrets.h` and fill in your Wi-Fi and MQTT credentials
+2. Install the libraries listed in [`firmware/README.md`](firmware/README.md)
+3. Flash to your ESP32-S3
 
-1. Copy `firmware/secrets.h.example` → `firmware/secrets.h`
-2. Fill in your Wi-Fi and MQTT credentials in `secrets.h`
-3. Install the required libraries (see `firmware/README.md`)
-4. Flash to your ESP32-S3
+> ⚠️ **Never commit `.env` or `secrets.h`.** Both are gitignored.
 
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env` — it lists every required variable with descriptions.
-
-> ⚠️ **Never commit `.env` or `secrets.h`** — both are in `.gitignore`.
+More details: [`docs/`](docs/) · MQTT topics: [`docs/MQTT_topics.md`](docs/MQTT_topics.md)
 
 ---
 
-## MQTT Topics
+## Security note
 
-| Topic | Direction | Description |
-|-------|-----------|-------------|
-| `smartfarm/sensors/XY-MD02` | ESP32 → broker | Air temperature + humidity |
-| `smartfarm/sensors/YL-69` | ESP32 → broker | Soil moisture |
-| `smartfarm/sensors/incident` | ESP32 → broker | Sensor error reports |
-| `smartfarm/devices/dht11H/status` | ESP32 → broker | Heartbeat / online-offline |
-| `smartfarm/devices/dht11H/ack` | ESP32 → broker | Actuator acknowledgment |
-| `smartfarm/actuators/#` | broker → ESP32 | Actuator commands |
+Credentials live only in `.env` and `secrets.h`, and MQTT runs over WSS (TLS). In the tested firmware build, broker certificate verification is off, so the link is encrypted but the broker is not authenticated; enabling it is planned.
 
 ---
 
-## Control Thresholds
+## Roadmap
 
-| Sensor | Low threshold | Action | High threshold | Action |
-|--------|--------------|--------|---------------|--------|
-| Temperature | < 17 °C | `ventilator_off` | > 28 °C | `ventilator_on` |
-| Humidity | < 62 % | `humidifier_on` | > 73 % | `open_roof` (pulse 2.5 s) |
-| Soil moisture | < 20 % | `water_pump_on` | > 80 % | safety cutoff |
+- [ ] Calibrate the soil sensor for real soil
+- [ ] Add a light sensor (BH1750)
+- [ ] Enable broker certificate verification
+- [ ] Long-term tests in real farm conditions
+- [ ] Add more sensors, history analysis and fault diagnostics
 
-The firmware enters **backup mode** after 30 s without a heartbeat and applies these thresholds autonomously.
-
----
-
-## Security Notes
-
-- Credentials are **never hardcoded** in source files — they live in `.env` (backend) and `secrets.h` (firmware), both gitignored.
-- The MQTT connection uses **WSS (TLS)** on port 8084.
-- The backend uses **Helmet**, **ThrottleGuard** (20 req/min), and **CSRF** middleware.
-- JWT tokens are stored in **HttpOnly cookies**.
+> Energy, cost and production benefits are **design goals**. No gain is claimed without measured field results.
 
 ---
 
-## Contributing
+## Author
 
-Pull requests are welcome. Please open an issue first to discuss significant changes.  
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) if present.
-
----
+**Nour Ben Ibrahim**, internship at **FEED IN GREEN** (2025–2026).
 
 ## License
 
