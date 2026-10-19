@@ -1,0 +1,70 @@
+# AWS ECS Task Definition for Backend
+{
+  "family": "smart-farm-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "smart-farm-backend",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/smart-farm-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "DATABASE_HOST",
+          "value": "YOUR_RDS_ENDPOINT"
+        },
+        {
+          "name": "DATABASE_PORT",
+          "value": "3306"
+        },
+        {
+          "name": "DATABASE_USERNAME",
+          "value": "smartfarm"
+        },
+        {
+          "name": "DATABASE_PASSWORD",
+          "value": "YOUR_DATABASE_PASSWORD"
+        },
+        {
+          "name": "DATABASE_NAME",
+          "value": "smartfarm_db"
+        },
+        {
+          "name": "JWT_SECRET",
+          "value": "YOUR_JWT_SECRET"
+        },
+        {
+          "name": "AWS_IOT_ENDPOINT",
+          "value": "YOUR_IOT_ENDPOINT"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/smart-farm-backend",
+          "awslogs-region": "eu-west-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3000/api/v1/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3
+      }
+    }
+  ]
+}

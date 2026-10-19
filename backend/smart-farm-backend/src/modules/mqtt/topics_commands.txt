@@ -1,0 +1,30 @@
+# MQTT Cheatsheet — mosquitto CLI examples
+# Replace <BROKER_HOST>, <PORT>, <USERNAME>, <PASSWORD>, and <PATH_TO_CA> with your actual values.
+# See .env.example for the variable names.
+
+# --- Publish a sensor reading ---
+mosquitto_pub \
+  -h <BROKER_HOST> \
+  -p <PORT> \
+  -u <USERNAME> \
+  -P <PASSWORD> \
+  --cafile <PATH_TO_CA>/emqxsl-ca.crt \
+  -t smartfarm/sensors/XY-MD02 \
+  -m '{"temperature":22.5,"humidity":60}'
+
+# --- Subscribe to actuator commands ---
+mosquitto_sub \
+  -h <BROKER_HOST> \
+  -p <PORT> \
+  -u <USERNAME> \
+  -P <PASSWORD> \
+  --cafile <PATH_TO_CA>/emqxsl-ca.crt \
+  -t "smartfarm/actuators/dht11H/+"
+
+# --- Available topics ---
+# smartfarm/sensors/XY-MD02         (publish: air temperature + humidity)
+# smartfarm/sensors/YL-69           (publish: soil moisture)
+# smartfarm/sensors/incident        (publish: sensor errors)
+# smartfarm/devices/dht11H/status   (publish: heartbeat)
+# smartfarm/devices/dht11H/ack      (publish: action acknowledgment)
+# smartfarm/actuators/#             (subscribe: actuator commands)

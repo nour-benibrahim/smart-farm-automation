@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # MQTT Broker (EMQX - Professional IoT MQTT)
+  mqtt-broker:
+    image: emqx/emqx:5.3.0
+    container_name: smart-farm-mqtt
+    ports:
+      - "1883:1883"    # MQTT
+      - "8083:8083"    # MQTT over WebSocket
+      - "8084:8084"    # MQTT over SSL
+      - "18083:18083"  # Dashboard
+    environment:
+      - EMQX_NAME=smart-farm-mqtt
+      - EMQX_HOST=0.0.0.0
+      - EMQX_DASHBOARD__DEFAULT_USERNAME=admin
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=smartfarm123
+      - EMQX_ACL__NOMATCH=allow
+    volumes:
+      - mqtt_data:/opt/emqx/data
+      - mqtt_log:/opt/emqx/log
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18083/api/v5/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart-farm-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_HOST=db
+      - DATABASE_PORT=3306
+      - DATABASE_USERNAME=smartfarm
+      - DATABASE_PASSWORD=smartfarm_password
+      - DATABASE_NAME=smartfarm_db
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - MQTT_BROKER_URL=mqtt://mqtt-broker:1883
+      - MQTT_USERNAME=admin
+      - MQTT_PASSWORD=smartfarm123
+    depends_on:
+      - db
+      - mqtt-broker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ../smart-farm-frontend
+      dockerfile: Dockerfile
+    container_name: smart-farm-frontend
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Database Service
+  db:
+    image: mysql:8.0
+    container_name: smart-farm-db
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=smartfarm_db
+      - MYSQL_USER=smartfarm
+      - MYSQL_PASSWORD=smartfarm_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: smart-farm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mysql_data:
+  mqtt_data:
+  mqtt_log:
+  redis_data:
